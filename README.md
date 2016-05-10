@@ -1,0 +1,2 @@
+# IllegalWordsDetection
+提供Unity3d手游客户端的敏感词检测的算法
