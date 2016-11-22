@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
-/// 此算法思想来源于“http://www.cnblogs.com/sumtec/archive/2008/02/01/1061742.html”,经测试，检测"dddss屄defg东正教"这个字符串并替换掉敏感词（屄和东正教）平均花费1.7ms
+/// 此算法思想来源于“http://www.cnblogs.com/sumtec/archive/2008/02/01/1061742.html”,经测试，检测"屄defg东正教dsa SofU  ckd臺灣青年獨立聯盟daoiuq 样什么J&    b玩意 日你先人"这个字符串并替换掉敏感词平均花费2.7ms
 /// </summary>
 public class IllegalWordDetection
 {
@@ -38,36 +38,43 @@ public class IllegalWordDetection
 
         int wordLength = 0;
         int maxWordLength = int.MinValue;
+
         for (int stringIndex = 0, len = badwords.Length; stringIndex < len; ++stringIndex)
         {
-            ///求得单个的敏感词汇的长度
-            wordLength = badwords[stringIndex].Length;
-            if (wordLength <= 0)
+            if (string.IsNullOrEmpty(badwords[stringIndex]))
                 continue;
 
+            string strBadWord = OriginalToLower(badwords[stringIndex]);
+            ///求得单个的敏感词汇的长度
+            wordLength = strBadWord.Length;
             maxWordLength = Math.Max(wordLength, maxWordLength);
-            for (int i = 0; i < wordLength; i++)
+
+            fixed (char* pWordStart = strBadWord)
             {
-                ///准确记录8位以内的敏感词汇的某个词在词汇中的“位置”
-                if (i < 7)
-                    fastCheck[badwords[stringIndex][i]] |= (byte)(1 << i);
-                else///8位以外的敏感词汇的词直接限定在第8位
-                    fastCheck[badwords[stringIndex][i]] |= 0x80;///0x80在内存中即为1000 0000，因为一个byte顶多标示8位，故超出8位的都位或上0x80，截断成第8位
+                for (int i = 0; i < wordLength; ++i)
+                {
+                    ///准确记录8位以内的敏感词汇的某个词在词汇中的“位置”
+                    if (i < 7)
+                        fastCheck[*(pWordStart + i)] |= (byte)(1 << i);
+                    else///8位以外的敏感词汇的词直接限定在第8位
+                        fastCheck[*(pWordStart + i)] |= 0x80;///0x80在内存中即为1000 0000，因为一个byte顶多标示8位，故超出8位的都位或上0x80，截断成第8位
+                }
+
+                ///缓存敏感词汇的长度
+                int cachedWordslength = Math.Min(8, wordLength);
+                char firstWord = *pWordStart;
+                ///记录敏感词汇的“大致长度（超出8个字的敏感词汇会被截取成8的长度）”，“key”值为敏感词汇的第一个词
+                fastLength[firstWord] |= (byte)(1 << (cachedWordslength - 1));
+                ///缓存出当前以badWord第一个字开头的一系列的敏感词汇的最长的长度
+                if (startCache[firstWord] < cachedWordslength)
+                    startCache[firstWord] = (byte)(cachedWordslength);
+
+                ///存好敏感词汇的最后一个词汇的“出现情况”
+                endCache[*(pWordStart + wordLength - 1)] = true;
+                ///将长度大于1的敏感词汇都压入到字典中
+                if (!wordsSet.Contains(strBadWord))
+                    wordsSet.Add(strBadWord);
             }
-
-            ///缓存敏感词汇的长度
-            int cacheWordslength = Math.Min(8, wordLength);
-            ///记录敏感词汇的“大致长度（超出8个字的敏感词汇会被截取成8的长度）”，“key”值为敏感词汇的第一个词
-            fastLength[badwords[stringIndex][0]] |= (byte)(1 << (cacheWordslength - 1));
-            ///缓存出当前以badwords[stringIndex][0]词开头的一系列的敏感词汇的最长的长度
-            if (startCache[badwords[stringIndex][0]] < cacheWordslength)
-                startCache[badwords[stringIndex][0]] = (byte)(cacheWordslength);
-
-            ///存好敏感词汇的最后一个词汇的“出现情况”
-            endCache[badwords[stringIndex][wordLength - 1]] = true;
-            ///将长度大于1的敏感词汇都压入到字典中
-            if (!wordsSet.Contains(badwords[stringIndex]))
-                wordsSet.Add(badwords[stringIndex]);
         }
 
         /// 初始化好一个用来存检测到的字符串的buffer
@@ -81,6 +88,54 @@ public class IllegalWordDetection
         }
     }
 
+    unsafe static string OriginalToLower(string text)
+    {
+        fixed (char* newText = text)
+        {
+            char* itor = newText;
+            char* end = newText + text.Length;
+            char c;
+
+            while (itor < end)
+            {
+                c = *itor;
+
+                if ('A' <= c && c <= 'Z')
+                {
+                    *itor = (char)(c | 0x20);
+                }
+
+                ++itor;
+            }
+        }
+
+        return text;
+    }
+
+    unsafe static bool EnsuranceLower(string text)
+    {
+        fixed (char* newText = text)
+        {
+            char* itor = newText;
+            char* end = newText + text.Length;
+            char c;
+
+            while (itor < end)
+            {
+                c = *itor;
+
+                if ('A' <= c && c <= 'Z')
+                {
+                    return true;
+                }
+
+                ++itor;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// 过滤字符串,默认遇到敏感词汇就以'*'代替
     /// </summary>
@@ -89,7 +144,7 @@ public class IllegalWordDetection
     /// <returns></returns>
     unsafe public static string Filter(string text, string mask = "*")
     {
-        var dic = DetectIllegalWords(text);
+        Dictionary<int, int> dic = DetectIllegalWords(text);
         ///如果没有敏感词汇，则直接返回出去
         if (dic.Count == 0)
             return text;
@@ -97,17 +152,19 @@ public class IllegalWordDetection
         fixed (char* newText = text, cMask = mask)
         {
             var itor = newText;
+            Dictionary<int, int>.Enumerator enumerator = dic.GetEnumerator();
             ///开始替换敏感词汇
-            foreach (var item in dic)
+            while (enumerator.MoveNext())
             {
                 ///偏移到敏感词出现的位置
-                itor = newText + item.Key;
-                for (int index = 0; index < item.Value; index++)
+                itor = newText + enumerator.Current.Key;
+                for (int index = 0; index < enumerator.Current.Value; index++)
                 {
                     ///屏蔽掉敏感词汇
                     *itor++ = *cMask;
                 }
             }
+            enumerator.Dispose();
         }
 
         return text;
@@ -198,6 +255,8 @@ public class IllegalWordDetection
         var findResult = new Dictionary<int, int>();
         if (string.IsNullOrEmpty(text))
             return findResult;
+        if (EnsuranceLower(text))
+            text = text.ToLower();
 
         fixed (char* ptext = text, detectedStrStart = dectectedBuffer)
         {
