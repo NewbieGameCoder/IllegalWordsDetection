@@ -253,10 +253,10 @@ public class IllegalWordDetection
     unsafe public static Dictionary<int, int> DetectIllegalWords(string text)
     {
         var findResult = new Dictionary<int, int>();
-        if (string.IsNullOrEmpty(text))
-            return findResult;
-        if (EnsuranceLower(text))
-            text = text.ToLower();
+        if (string.IsNullOrEmpty(text)) return findResult;
+        if (EnsuranceLower(text)) text = text.ToLower();
+        var bufferLength = dectectedBuffer.Length;
+        if (text.Length > bufferLength) dectectedBuffer = new char[bufferLength << 1];
 
         fixed (char* ptext = text, detectedStrStart = dectectedBuffer)
         {
